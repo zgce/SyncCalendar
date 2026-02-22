@@ -1,0 +1,20 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "module description"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "同步其它日历服务到本机日历"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "日历同步助手"
+    },
+    {
+      "name": "service_label",
+      "value": "Scheduled calendar synchronization task"
+    }
+  ]
+}

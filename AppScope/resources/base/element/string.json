@@ -1,0 +1,20 @@
+{
+  "string": [
+    {
+      "name": "app_name",
+      "value": "SyncCalendar"
+    },
+    {
+      "name": "read_calendar_reason",
+      "value": "Synchronizing calendar data must be done using"
+    },
+    {
+      "name": "write_calendar_reason",
+      "value": "Synchronizing calendar data must be done using"
+    },
+    {
+      "name": "service_desc",
+      "value": "Scheduled calendar synchronization task"
+    }
+  ]
+}

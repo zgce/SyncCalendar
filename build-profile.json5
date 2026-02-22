@@ -1,0 +1,56 @@
+{
+  "app": {
+    "signingConfigs": [
+      {
+        "name": "default",
+        "type": "HarmonyOS",
+        "material": {
+          "certpath": "C:/Users/zgce/.ohos/config/default_SyncCalendar_UmyswT1rHTdEuaEfY2MwQ-d6hlIIXWSng7P6BhvYotc=.cer",
+          "keyAlias": "debugKey",
+          "keyPassword": "0000001BD05C3E363980FCAD16EBE4C31464C243649EF911EBBA5D07EBBF04169B91DC01343F54E0E9D6E7",
+          "profile": "C:/Users/zgce/.ohos/config/default_SyncCalendar_UmyswT1rHTdEuaEfY2MwQ-d6hlIIXWSng7P6BhvYotc=.p7b",
+          "signAlg": "SHA256withECDSA",
+          "storeFile": "C:/Users/zgce/.ohos/config/default_SyncCalendar_UmyswT1rHTdEuaEfY2MwQ-d6hlIIXWSng7P6BhvYotc=.p12",
+          "storePassword": "0000001BD0CCA17E82E2F8B7BAC139FC5A7E0F16C5DC1C5D05C06F603AEC64BB55FF60DBCA959D94625329"
+        }
+      }
+    ],
+    "products": [
+      {
+        "name": "default",
+        "signingConfig": "default",
+        "targetSdkVersion": "6.0.2(22)",
+        "compatibleSdkVersion": "6.0.1(21)",
+        "runtimeOS": "HarmonyOS",
+        "buildOption": {
+          "strictMode": {
+            "caseSensitiveCheck": true,
+            "useNormalizedOHMUrl": true
+          }
+        }
+      }
+    ],
+    "buildModeSet": [
+      {
+        "name": "debug",
+      },
+      {
+        "name": "release"
+      }
+    ]
+  },
+  "modules": [
+    {
+      "name": "entry",
+      "srcPath": "./entry",
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": [
+            "default"
+          ]
+        }
+      ]
+    }
+  ]
+}
