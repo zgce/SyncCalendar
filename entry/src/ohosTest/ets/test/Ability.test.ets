@@ -31,5 +31,14 @@ export default function abilityTest() {
       expect(a).assertContain(b);
       expect(a).assertEqual(a);
     })
+    it('assertDateTime', 0, () => {
+      const strTime = '2014-04-30T08:00:00+08:00'
+      const dateTime = new Date(strTime)
+      expect(dateTime != null).assertTrue()
+
+      const strTime2 = '2014-04-25T15:07:31.893Z'
+      const dateTime2 = new Date(strTime2)
+      expect(dateTime2 != null).assertTrue()
+    })
   })
 }

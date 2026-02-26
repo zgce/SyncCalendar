@@ -2,6 +2,7 @@ import { StrUtil } from '@pura/harmony-utils'
 import { rcp } from '@kit.RemoteCommunicationKit'
 import { http } from '@kit.NetworkKit'
 import { GoogleClientInfo, ProxyInfo } from './GoogleClientInfoManager';
+import { hilog } from '@kit.PerformanceAnalysisKit'
 
 
 /**
@@ -24,63 +25,78 @@ interface FetchResponse {
 }
 
 interface UserObj {
-  email: string;
-  displayName: string;
+  email: string
+  displayName: string
 }
 
 interface timeObj {
-  dateTime: string;
-  timeZone: string;
+  date?: string
+  dateTime?: string
+  timeZone: string
 }
 
 /**
  * Google日历对象结构
  */
 export interface GoogleCalendarObj {
-  kind: string;
-  etag: string;
-  id: string;
-  summary: string;
-  timeZone: string;
-  autoAcceptInvitations: boolean;
+  kind: string
+  etag: string
+  id: string
+  summary: string
+  timeZone: string
+  autoAcceptInvitations: boolean
 }
 
 /**
  * Google日历事件对象结构
  */
 export interface GoogleCalendarEventObj {
-  kind: string;
-  etag: string;
-  id: string;
-  status: string;
-  htmlLink: string;
-  created: string;
-  updated: string;
-  summary: string;
-  description: string;
-  creator: UserObj;
-  organizer: UserObj;
-  start: timeObj;
-  end: timeObj;
-  iCalUID: string;
-  sequence: number;
-  eventType: string;
+  kind: string
+  etag: string
+  id: string
+  status: string
+  htmlLink: string
+  created: string
+  updated: string
+  summary: string
+  description: string
+  location: string
+  creator: UserObj
+  organizer: UserObj
+  start: timeObj
+  end: timeObj
+  iCalUID: string
+  sequence: number
+  eventType: string
+
+  calEvtId: number //自定义字段
+}
+
+/**
+ * 创建Google日历事件时的请求体结构
+ */
+export interface GoogleCalendarEventCreateObj {
+  summary: string
+  description?: string
+  location?: string
+  start: timeObj
+  end: timeObj
 }
 
 /**
  * Google日历事件列表对象结构
  */
 export interface GoogleCalendarEventListObj {
-  kind: string;
-  etag: string;
-  summary: string;
-  description: string;
-  updated: string;
-  timeZone: string;
-  accessRole: string;
-  nextPageToken: string;
-  nextSyncToken: string;
-  items: Array<GoogleCalendarEventObj>;
+  kind: string
+  etag: string
+  summary: string
+  description: string
+  updated: string
+  timeZone: string
+  accessRole: string
+  nextPageToken: string
+  nextSyncToken: string
+  items: Array<GoogleCalendarEventObj>
 }
 
 
@@ -88,7 +104,9 @@ export interface GoogleCalendarEventListObj {
  * 封装Google日历API请求
  */
 export class GoogleCalendarRequests {
-  public static GLOBAL_NAME: string = 'GoogleCalendarReqManager';
+  public static GLOBAL_NAME: string = 'GoogleCalendarRequests';
+  public readonly DOMAIN = 0x0001
+  public readonly LOG_TAG = 'CalReqsTag'
 
   /**
    * 获取AccessToken，后续所有请求必须有AccessToken
@@ -110,15 +128,15 @@ export class GoogleCalendarRequests {
       }
       if (rsp.data && rsp.retCode > 0) {
         const text = StrUtil.unit8ArrayToStr(StrUtil.bufferToUint8Array(rsp.data as ArrayBuffer))
-        console.log(`get accessToken response status code: ${rsp.retCode}, response: ${text}`)
+        hilog.info(this.DOMAIN, this.LOG_TAG, `get accessToken response status code: ${rsp.retCode}, response: ${text}`)
         if (rsp.retCode == 200) {
           const pjs = JSON.parse(text) as AccessTokenRespType
-          console.log(`parse access_token: ${pjs.access_token}`)
+          hilog.info(this.DOMAIN, this.LOG_TAG, `parse access_token: ${pjs.access_token}`)
           result = pjs.access_token;
         }
       }
     } catch (err) {
-      console.error('request access token failed! error: ', err.message)
+      hilog.error(this.DOMAIN, this.LOG_TAG, `request access token failed! error: ${Error(err).message}`)
     }
     return result;
   }
@@ -145,7 +163,7 @@ export class GoogleCalendarRequests {
         primaryCalendar = JSON.parse(text) as GoogleCalendarObj
       }
     } catch (err) {
-      console.error('getPrimaryCalendar failed! error: ', err.message)
+      hilog.error(this.DOMAIN, this.LOG_TAG, `getPrimaryCalendar failed! error: ${Error(err).message}`)
     }
     return primaryCalendar
   }
@@ -154,17 +172,17 @@ export class GoogleCalendarRequests {
    * 获取Google主日历事件列表
    * @param info Google客户端配置信息
    * @param accessToken 认证用的AccessToken
-   * @param nextSyncToken 查询同步标记
    * @returns 日历事件列表
    */
-  async getPrimaryCalendarEvents(info: GoogleClientInfo, accessToken: string, nextSyncToken?: string): Promise<GoogleCalendarEventListObj | undefined> {
+  async getPrimaryCalendarEvents(info: GoogleClientInfo, accessToken: string): Promise<GoogleCalendarEventListObj | undefined> {
     const proxyInfo = info.proxy
     let calendarEvents: GoogleCalendarEventListObj | undefined = undefined
     try {
       let url = 'https://www.googleapis.com/calendar/v3/calendars/primary/events'
-      if (StrUtil.isNotEmpty(nextSyncToken)) {
-        url += `?syncToken=${nextSyncToken}`
-      }
+      const now = new Date()
+      const prevDay = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000)
+      url += `?timeMax=${now.toISOString()}`
+      url += `&timeMin=${prevDay.toISOString()}`
       let rsp: FetchResponse = {retCode: 0}
       if (proxyInfo && StrUtil.isNotBlank(proxyInfo.proxyIp)) {
         rsp = await this.fetchUrlWithProxy(proxyInfo, url, http.RequestMethod.GET, undefined, accessToken)
@@ -179,9 +197,104 @@ export class GoogleCalendarRequests {
         calendarEvents = JSON.parse(text) as GoogleCalendarEventListObj
       }
     } catch ( err) {
-      console.error('getPrimaryCalendarEvents failed! error: ', err.message)
+      hilog.error(this.DOMAIN, this.LOG_TAG, `getPrimaryCalendarEvents failed! error: ${Error(err).message}`)
     }
     return calendarEvents
+  }
+
+  /**
+   * 创建Google日历事件
+   * @param info Google客户端配置信息
+   * @param accessToken 认证用的AccessToken
+   * @param eventData 事件数据
+   * @returns 创建的事件对象
+   */
+  async createCalendarEvent(info: GoogleClientInfo, accessToken: string, eventData: GoogleCalendarEventCreateObj): Promise<GoogleCalendarEventObj | undefined> {
+    const proxyInfo = info.proxy
+    let createdEvent: GoogleCalendarEventObj | undefined = undefined
+    try {
+      const url = 'https://www.googleapis.com/calendar/v3/calendars/primary/events'
+      const content = JSON.stringify(eventData)
+      let rsp: FetchResponse = {retCode: 0}
+      if (proxyInfo && StrUtil.isNotBlank(proxyInfo.proxyIp)) {
+        rsp = await this.fetchUrlWithProxy(proxyInfo, url, http.RequestMethod.POST, content, accessToken)
+      } else {
+        rsp = await this.fetchUrl(url, http.RequestMethod.POST, content, accessToken)
+      }
+      if (rsp.data && rsp.retCode === 200) {
+        const text = StrUtil.unit8ArrayToStr(StrUtil.bufferToUint8Array(rsp.data as ArrayBuffer))
+        createdEvent = JSON.parse(text) as GoogleCalendarEventObj
+        hilog.info(this.DOMAIN, this.LOG_TAG, `createCalendarEvent succeed, id: ${createdEvent.id}`)
+      } else {
+        hilog.error(this.DOMAIN, this.LOG_TAG, `createCalendarEvent failed! status: ${rsp.retCode}`)
+      }
+    } catch (err) {
+      hilog.error(this.DOMAIN, this.LOG_TAG, `createCalendarEvent failed! error: ${Error(err).message}`)
+    }
+    return createdEvent
+  }
+
+  /**
+   * 更新Google日历事件
+   * @param info Google客户端配置信息
+   * @param accessToken 认证用的AccessToken
+   * @param googleEventId Google事件ID
+   * @param eventData 事件数据
+   * @returns 更新后的事件对象
+   */
+  async updateCalendarEvent(info: GoogleClientInfo, accessToken: string, googleEventId: string, eventData: GoogleCalendarEventCreateObj): Promise<GoogleCalendarEventObj | undefined> {
+    const proxyInfo = info.proxy
+    let updatedEvent: GoogleCalendarEventObj | undefined = undefined
+    try {
+      const url = `https://www.googleapis.com/calendar/v3/calendars/primary/events/${googleEventId}`
+      const content = JSON.stringify(eventData)
+      let rsp: FetchResponse = {retCode: 0}
+      if (proxyInfo && StrUtil.isNotBlank(proxyInfo.proxyIp)) {
+        rsp = await this.fetchUrlWithProxy(proxyInfo, url, http.RequestMethod.PUT, content, accessToken)
+      } else {
+        rsp = await this.fetchUrl(url, http.RequestMethod.PUT, content, accessToken)
+      }
+      if (rsp.data && rsp.retCode === 200) {
+        const text = StrUtil.unit8ArrayToStr(StrUtil.bufferToUint8Array(rsp.data as ArrayBuffer))
+        updatedEvent = JSON.parse(text) as GoogleCalendarEventObj
+        hilog.info(this.DOMAIN, this.LOG_TAG, `updateCalendarEvent succeed, id: ${updatedEvent.id}`)
+      } else {
+        hilog.error(this.DOMAIN, this.LOG_TAG, `updateCalendarEvent failed! status: ${rsp.retCode}`)
+      }
+    } catch (err) {
+      hilog.error(this.DOMAIN, this.LOG_TAG, `updateCalendarEvent failed! error: ${Error(err).message}`)
+    }
+    return updatedEvent
+  }
+
+  /**
+   * 删除Google日历事件
+   * @param info Google客户端配置信息
+   * @param accessToken 认证用的AccessToken
+   * @param googleEventId Google事件ID
+   * @returns 是否删除成功
+   */
+  async deleteCalendarEvent(info: GoogleClientInfo, accessToken: string, googleEventId: string): Promise<boolean> {
+    const proxyInfo = info.proxy
+    let success = false
+    try {
+      const url = `https://www.googleapis.com/calendar/v3/calendars/primary/events/${googleEventId}`
+      let rsp: FetchResponse = {retCode: 0}
+      if (proxyInfo && StrUtil.isNotBlank(proxyInfo.proxyIp)) {
+        rsp = await this.fetchUrlWithProxy(proxyInfo, url, http.RequestMethod.DELETE, undefined, accessToken)
+      } else {
+        rsp = await this.fetchUrl(url, http.RequestMethod.DELETE, undefined, accessToken)
+      }
+      if (rsp.retCode === 204 || rsp.retCode === 200) {
+        success = true
+        hilog.info(this.DOMAIN, this.LOG_TAG, `deleteCalendarEvent succeed, id: ${googleEventId}`)
+      } else {
+        hilog.error(this.DOMAIN, this.LOG_TAG, `deleteCalendarEvent failed! status: ${rsp.retCode}`)
+      }
+    } catch (err) {
+      hilog.error(this.DOMAIN, this.LOG_TAG, `deleteCalendarEvent failed! error: ${Error(err).message}`)
+    }
+    return success
   }
 
   /**
@@ -227,16 +340,19 @@ export class GoogleCalendarRequests {
       try {
         const rsp = await session.fetch(request)
         ret.retCode = rsp.statusCode
+        if (rsp.statusCode != 200) {
+          hilog.error(this.DOMAIN, this.LOG_TAG, `request ${method} for ${url} with proxy failed! status code: ${rsp.statusCode}`)
+        }
         if (rsp.body) {
           ret.data = rsp.body
         }
       } catch (err) {
-        console.error(`request ${method} for ${url} with proxy failed! error:`, err.message)
+        hilog.error(this.DOMAIN, this.LOG_TAG, `request ${method} for ${url} with proxy failed! error: ${Error(err).message}`)
       } finally {
         session.close()
       }
     } catch (err) {
-      console.error('create rcp session failed! error: ', err.message)
+      hilog.error(this.DOMAIN, this.LOG_TAG,`create rcp session failed! error: ${Error(err).message}`)
     }
     return ret
   }
@@ -277,7 +393,7 @@ export class GoogleCalendarRequests {
         }
       }
     } catch (err) {
-      console.error(`fetch url: ${url} failed!`, err.message)
+      hilog.error(this.DOMAIN, this.LOG_TAG, `fetch url: ${url} failed! ${Error(err).message}`)
     } finally {
       request.destroy()
     }

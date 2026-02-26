@@ -12,3 +12,5 @@
 /.appanalyzer
 .env
 entry/src/ohosTest/ets/test/business/GoogleClient.json
+/oh-package-lock.json5
+CLAUDE.md

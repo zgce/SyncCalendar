@@ -27,10 +27,18 @@
         "skills": [
           {
             "entities": [
-              "entity.system.home"
+              "entity.system.home",
+              "entity.system.browsable"
             ],
             "actions": [
-              "ohos.want.action.home"
+              "ohos.want.action.home",
+              "ohos.want.action.viewData",
+            ],
+            "uris": [
+              {
+                "scheme": "com.fam.sync.calendar",
+                "host": "oauth2callback"
+              }
             ]
           }
         ],
@@ -38,18 +46,6 @@
           "dataTransfer",
           "taskKeeping"
         ]
-      },
-      {
-        "name": "ServiceAbility",
-        "srcEntry": "./ets/entryability/ServiceAbility.ets",
-        "launchType": "standard",  // 新增启动类型配置
-        "description": "$string:service_desc",
-        "icon": "$media:layered_image",
-        "label": "$string:service_label",
-        "exported": false,
-        "backgroundModes": ["dataTransfer"],  // 添加后台模式
-        "startWindowIcon": "$media:startIcon",
-        "startWindowBackground": "$color:start_window_background"
       }
     ],
     "extensionAbilities": [
@@ -75,6 +71,12 @@
       },
       {
         "name": "ohos.permission.GET_NETWORK_INFO",
+        "usedScene": {
+          "when": "always"
+        }
+      },
+      {
+        "name": "ohos.permission.SET_NETWORK_INFO",
         "usedScene": {
           "when": "always"
         }

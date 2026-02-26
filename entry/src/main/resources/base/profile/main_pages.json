@@ -1,6 +1,8 @@
 {
   "src": [
-    "pages/Index",
-    "pages/ConfigureInfo"
+    "pages/IndexPage",
+    "pages/ClientConfigurePage",
+    "pages/LoginPage",
+    "pages/ConfigSetPage"
   ]
 }

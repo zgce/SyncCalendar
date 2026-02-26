@@ -1,26 +1,17 @@
-import { GoogleClientInfo, ProxyInfo, GoogleClientInfoManager} from '../business/GoogleClientInfoManager';
+import { GoogleClientInfo, ProxyInfo, GoogleClientInfoManager } from '../business/GoogleClientInfoManager';
 import { GoogleCalendarRequests } from '../business/GoogleCalendarRequests';
 import { StrUtil } from '@pura/harmony-utils'
 import { promptAction } from '@kit.ArkUI';
 
-interface CalendarVendor {
-  name: string;
-  disable: boolean;
-}
-
 interface RouterParams {
   action?: string;
   clientId?: string;
+  proxy?: ProxyInfo;
 }
 
 @Entry
 @Component
-struct ConfigureInfo {
-  @State options: CalendarVendor[] = [
-    { name: "google日历", disable: false },
-    { name: "163日历", disable: true },
-    { name: "QQ日历", disable: true }
-  ]
+struct ClientConfigurePage {
   @State selectedVendor: number = 0;
   @State action: string = ''
   @State title: string = ''
@@ -54,6 +45,9 @@ struct ConfigureInfo {
     if (this.action === 'new') {
       this.title = '新配置日历服务'
       this.newIndex = this.infosMgr?.getClientInfos().length || 1;
+      if (params?.proxy) {
+        this.proxyInfo = params?.proxy
+      }
     } else if (this.action === 'edit') {
       this.title = '配置日历服务'
       this.edtCliId = params?.clientId || null;
@@ -91,22 +85,6 @@ struct ConfigureInfo {
 
       Text('日历服务:      当前仅支持Google日历').fontSize(18)
       Row() {
-        Text('配置名称: ').fontSize(18)
-        TextInput({ placeholder: StrUtil.isBlank(this.edtCliId) ? `Google日历${this.newIndex}` : this.clientInfo.name })
-          .fontSize(14)
-          .padding(2)
-          .border({ width: 1, color: 0xD9D9D9 })
-          .borderRadius(4)
-          .width('70%')
-          .onChange((value: string) => {
-            this.clientInfo.name = value;
-          })
-      }
-      .width('95%')
-      .height('auto')
-      .justifyContent(FlexAlign.Start)
-
-      Row() {
         Text('Client ID: ').fontSize(18)
         TextInput({ placeholder: StrUtil.isBlank(this.edtCliId) ? 'GOOGLE_CLIENT_ID' : this.clientInfo.clientId })
           .fontSize(14)
@@ -142,7 +120,9 @@ struct ConfigureInfo {
 
       Row() {
         Text('Refresh Token: ').fontSize(18)
-        TextInput({ placeholder: StrUtil.isBlank(this.edtCliId) ? 'GOOGLE_REFRESH_TOKEN': this.clientInfo.clientRefreshToken })
+        TextInput({
+          placeholder: StrUtil.isBlank(this.edtCliId) ? 'GOOGLE_REFRESH_TOKEN' : this.clientInfo.clientRefreshToken
+        })
           .fontSize(14)
           .padding(2)
           .border({ width: 1, color: 0xD9D9D9 })
@@ -160,7 +140,7 @@ struct ConfigureInfo {
 
       Row() {
         Text('代理服务器IP: ').fontSize(18)
-        TextInput({ placeholder: StrUtil.isBlank(this.edtCliId) ? '直连可不填' : this.proxyInfo.proxyIp })
+        TextInput({ placeholder: StrUtil.isBlank(this.proxyInfo.proxyIp) ? '直连可不填' : this.proxyInfo.proxyIp })
           .fontSize(14)
           .padding(2)
           .border({ width: 1, color: 0xD9D9D9 })
@@ -176,7 +156,7 @@ struct ConfigureInfo {
 
       Row() {
         Text('代理服务器端口: ').fontSize(18)
-        TextInput({ placeholder: StrUtil.isBlank(this.edtCliId) ? '直连可不填' : this.proxyInfo.proxyPort.toString() })
+        TextInput({ placeholder: this.proxyInfo.proxyPort == 0 ? '直连可不填' : this.proxyInfo.proxyPort.toString() })
           .fontSize(14)
           .padding(2)
           .border({ width: 1, color: 0xD9D9D9 })
@@ -193,7 +173,7 @@ struct ConfigureInfo {
 
       Row() {
         Text('用户名: ').fontSize(18)
-        TextInput({ placeholder: StrUtil.isBlank(this.edtCliId) ? '直连可不填' : this.proxyInfo.proxyUser })
+        TextInput({ placeholder: StrUtil.isBlank(this.proxyInfo.proxyUser) ? '直连可不填' : this.proxyInfo.proxyUser })
           .fontSize(14)
           .padding(2)
           .border({ width: 1, color: 0xD9D9D9 })
@@ -209,7 +189,7 @@ struct ConfigureInfo {
 
       Row() {
         Text('密码: ').fontSize(18)
-        TextInput({ placeholder: StrUtil.isBlank(this.edtCliId) ? '直连可不填' : this.proxyInfo.proxyPwd })
+        TextInput({ placeholder: StrUtil.isBlank(this.proxyInfo.proxyPwd) ? '直连可不填' : this.proxyInfo.proxyPwd })
           .fontSize(14)
           .padding(2)
           .border({ width: 1, color: 0xD9D9D9 })
@@ -234,24 +214,24 @@ struct ConfigureInfo {
               if (this.validClientInfo()) {
                 this.addClientInfo()
                 promptAction.openToast({
-                  message: '添加成功',
-                  duration: 3000,
+                  message: '正在添加配置中，请稍等...',
+                  duration: 2000,
                   textColor: Color.White,
                   backgroundColor: Color.Black
                 }).catch((err: Error) => {
                   console.error(`显示提示失败 ${err.name}, ${err.message}`)
                 })
-                this.saveClientInfo();
-                this.getUIContext().getRouter().back({ url: 'pages/Index', params: { needReload: true }})
+                //this.saveClientInfo();
+                //this.getUIContext().getRouter().back({ url: 'pages/IndexPage', params: { needReload: true } })
               } else {
                 this.getUIContext().showAlertDialog({
                   autoCancel: true,
-                  message: '必须输入\nName/ClientID/ClientSecret/RefreshToken'
+                  message: '必须输入\nClientID/ClientSecret/RefreshToken'
                 })
               }
             } else if (this.action === 'edit' && StrUtil.isNotBlank(this.edtCliId)) {
               if (this.validClientInfo()) {
-                this.edtClient();
+                this.updateClient();
                 promptAction.openToast({
                   message: '修改配置成功',
                   duration: 3000,
@@ -261,7 +241,7 @@ struct ConfigureInfo {
                   console.error(`显示提示失败 ${err.name}, ${err.message}`)
                 })
                 this.saveClientInfo();
-                this.getUIContext().getRouter().back()
+                this.getUIContext().getRouter().back({ url: 'pages/IndexPage', params: { needReload: true } })
               } else {
                 this.getUIContext().showAlertDialog({
                   autoCancel: true,
@@ -296,21 +276,23 @@ struct ConfigureInfo {
   }
 
   private validClientInfo(): boolean {
-    return StrUtil.isNotBlank(this.clientInfo.name) && StrUtil.isNotBlank(this.clientInfo.clientId) &&
-    StrUtil.isNotBlank(this.clientInfo.clientSecret)
+    return StrUtil.isNotBlank(this.clientInfo.clientId) && StrUtil.isNotBlank(this.clientInfo.clientSecret) &&
+    StrUtil.isNotBlank(this.clientInfo.clientRefreshToken)
   }
 
   private addClientInfo(): void {
     this.clientInfo.proxy = this.proxyInfo;
-    this.infosMgr?.addClientInfo(this.clientInfo)
+    if (StrUtil.isBlank(this.clientInfo.name)) {
+      this.clientInfo.name = `Google日历${this.newIndex}`
+    }
+    this.infosMgr?.addClientInfo(this.clientInfo, this.getUIContext())
     console.info(`add clientInfo ${this.clientInfo.name}`)
   }
 
-  private edtClient(): void {
+  private updateClient(): void {
     this.clientInfo.proxy = this.proxyInfo;
     const data = this.infosMgr?.getClientInfo(this.clientInfo.clientId);
     if (data) {
-      data.name = this.clientInfo.name
       data.clientId = this.clientInfo.clientId
       data.clientSecret = this.clientInfo.clientSecret
       data.clientRefreshToken = this.clientInfo.clientRefreshToken

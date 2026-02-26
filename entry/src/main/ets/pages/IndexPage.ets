@@ -1,4 +1,7 @@
-import { GoogleClientInfo, ProxyInfo, GoogleClientInfoManager} from '../business/GoogleClientInfoManager';
+import { GoogleCalendarDataManager } from '../business/GoogleCalendarDataManager';
+import { GoogleCalendarRequests } from '../business/GoogleCalendarRequests';
+import { GoogleCalendarSyncAction } from '../business/GoogleCalendarSyncAction';
+import { GoogleClientInfo, GoogleClientInfoManager} from '../business/GoogleClientInfoManager';
 
 interface RouterParams {
   needReload: boolean;
@@ -8,12 +11,16 @@ interface RouterParams {
 @Component
 struct Index {
   @State infosMgr: GoogleClientInfoManager | undefined = AppStorage.get(GoogleClientInfoManager.GLOBAL_NAME)
+  @State dataMgr: GoogleCalendarDataManager | undefined = AppStorage.get(GoogleCalendarDataManager.GLOBAL_NAME)
+  @State reqMgr: GoogleCalendarRequests | undefined = AppStorage.get(GoogleCalendarRequests.GLOBAL_NAME)
   @State swipIndex: number | null = null
   @State needReload: boolean = false
 
   aboutToAppear(): void {
     // 初始化加载数据
     this.infosMgr = AppStorage.get(GoogleClientInfoManager.GLOBAL_NAME)
+    this.dataMgr = AppStorage.get(GoogleCalendarDataManager.GLOBAL_NAME)
+    this.reqMgr = AppStorage.get(GoogleCalendarRequests.GLOBAL_NAME)
   }
 
   onPageShow(): void {
@@ -23,9 +30,9 @@ struct Index {
       this.needReload = false
       this.getUIContext()
         .getRouter()
-        .replaceUrl({ url: 'pages/Index', params: { needReload: false } })
+        .replaceUrl({ url: 'pages/IndexPage', params: { needReload: false } })
         .catch((err: Error) => {
-          console.error(`replace current page [pages/Index] failed! err: ${err.name}, ${err.message}`)
+          console.error(`replace current page [pages/IndexPage] failed! err: ${err.name}, ${err.message}`)
         })
     }
   }
@@ -55,7 +62,7 @@ struct Index {
         .onClick(() => {
           this.getUIContext()
             .getRouter()
-            .pushUrl({ url: 'pages/ConfigureInfo', params: { action: 'new' } }, (err: Error) => {
+            .pushUrl({ url: 'pages/ConfigSetPage', params: { action: 'new' } }, (err: Error) => {
               if (err) {
                 let message = (err as BusinessError).message;
                 let code = (err as BusinessError).code;
@@ -74,6 +81,12 @@ struct Index {
         }
         .backgroundColor(Color.White)
         .height(30)
+        .onClick(() => {
+          this.infosMgr?.getClientInfos().forEach(info => {
+            const syncAction = new GoogleCalendarSyncAction()
+            syncAction.action(info)
+          })
+        })
       }
       .width('100%')
       .height('auto')
@@ -132,7 +145,7 @@ struct Index {
               .onClick(() => {
                 this.getUIContext()
                   .getRouter()
-                  .pushUrl({ url: 'pages/ConfigureInfo', params: { action: 'edit', clientId: item.clientId } },
+                  .pushUrl({ url: 'pages/ClientConfigurePage', params: { action: 'edit', clientId: item.clientId } },
                     (err: Error) => {
                       if (err) {
                         let message = (err as BusinessError).message;
