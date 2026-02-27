@@ -16,6 +16,9 @@ struct Index {
   @State reqMgr: GoogleCalendarRequests | undefined = AppStorage.get(GoogleCalendarRequests.GLOBAL_NAME)
   @State swipIndex: number | null = null
   @State needReload: boolean = false
+  @State swipeOffsets: Map<number, number> = new Map()
+  private readonly DELETE_BTN_WIDTH: number = 70
+  private readonly SYNC_BTN_WIDTH: number = 70
 
   aboutToAppear(): void {
     // 初始化加载数据
@@ -113,54 +116,104 @@ struct Index {
       List({ space: 5 }) {
         ForEach(this.infosMgr?.getClientInfos(), (item: GoogleClientInfo, index: number) => {
           ListItem() {
-            Row() {
-              if (this.swipIndex == index) {
+            Stack({ alignContent: Alignment.End }) {
+              // 同步按钮（淡黄色背景）
+              Row({ space: 0 }) {
+                Button() {
+                  Text('同步')
+                    .fontSize(14)
+                    .fontColor(Color.Black)
+                }
+                .backgroundColor('#FFFACD')
+                .width(this.SYNC_BTN_WIDTH)
+                .height('100%')
+                .onClick(() => {
+                  const syncAction = new GoogleCalendarSyncAction()
+                  syncAction.action(item).then(() => {
+                    promptAction.openToast({
+                      message: '同步完成',
+                      duration: 2000,
+                      textColor: Color.White,
+                      backgroundColor: Color.Black
+                    }).catch((err: Error) => {
+                      console.error(`显示提示失败 ${err.name}, ${err.message}`)
+                    })
+                  })
+                  promptAction.openToast({
+                    message: '正在同步中，请稍候...',
+                    duration: 3000,
+                    textColor: Color.White,
+                    backgroundColor: Color.Black
+                  }).catch((err: Error) => {
+                    console.error(`显示提示失败 ${err.name}, ${err.message}`)
+                  })
+                  this.closeSwipe(index)
+                })
+
+                // 右侧删除按钮（淡红色背景）
                 Button() {
                   Text('删除')
                     .fontSize(14)
                     .fontColor(Color.White)
                 }
-                .backgroundColor('#FF4444')
-                .width(50)
-                .height(50)
-                .margin({ right: 5 })
+                .backgroundColor('#FF6B6B')
+                .width(this.DELETE_BTN_WIDTH)
+                .height('100%')
                 .onClick(() => {
                   this.showDeleteInfoDialog(item)
-                  this.swipIndex = null
+                  this.closeSwipe(index)
                 })
               }
-              Button() {
-                Row() {
-                  Image($r('app.media.GoogleCalendar'))
-                    .width(48)
-                    .height(48)
-                  Text(item.name)
-                    .fontSize(18)
-                }
-                .width('100%')
-                .height('auto')
-                .justifyContent(FlexAlign.Start)
+
+              // 主内容区域
+              Row() {
+                Image($r('app.media.GoogleCalendar'))
+                  .width(86)
+                  .height(86)
+                  .border({ width: 0 })
+                  .borderRadius(10)
+                Text(item.name)
+                  .fontSize(19)
+                  .margin({ left: 12 })
               }
-              .backgroundColor(Color.White)
-              .margin({ left: 8, right: 8 })
-              .height('auto')
+              .width('100%')
+              .height(80)
+              .justifyContent(FlexAlign.Start)
+              .backgroundColor('#E3F2FD')
+              .padding({ left: 16 })
               .border({ width: 1, color: 0xD9D9D9 })
               .borderRadius(4)
+              .translate({ x: this.swipeOffsets.get(index) || 0 })
               .gesture(PanGesture({
                 fingers: 1,
-                direction: PanDirection.Right,
+                direction: PanDirection.Horizontal,
                 distance: 10
+              }).onActionUpdate((evt: GestureEvent) => {
+                const currentOffset = this.swipeOffsets.get(index) || 0
+                const maxOffset = -(this.DELETE_BTN_WIDTH + this.SYNC_BTN_WIDTH)
+                let newOffset = currentOffset + evt.offsetX
+                // 限制滑动范围
+                if (newOffset < maxOffset) {
+                  newOffset = maxOffset
+                } else if (newOffset > 0) {
+                  newOffset = 0
+                }
+                this.swipeOffsets.set(index, newOffset)
               }).onActionEnd((evt: GestureEvent) => {
-                this.swipIndex = index
-              }))
-              .gesture(PanGesture({
-                fingers: 1,
-                direction: PanDirection.Left,
-                distance: 10
-              }).onActionEnd((evt: GestureEvent) => {
-                this.swipIndex = null
+                const currentOffset = this.swipeOffsets.get(index) || 0
+                const maxOffset = -(this.DELETE_BTN_WIDTH + this.SYNC_BTN_WIDTH)
+                // 根据滑动距离决定是打开还是关闭
+                if (currentOffset < maxOffset / 2) {
+                  this.swipeOffsets.set(index, maxOffset)
+                } else {
+                  this.swipeOffsets.set(index, 0)
+                }
               }))
               .onClick(() => {
+                if ((this.swipeOffsets.get(index) || 0) !== 0) {
+                  this.closeSwipe(index)
+                  return
+                }
                 this.getUIContext()
                   .getRouter()
                   .pushUrl({ url: 'pages/ClientConfigurePage', params: { action: 'edit', clientId: item.clientId } },
@@ -175,13 +228,21 @@ struct Index {
                     })
               })
             }
+            .height(80)
+            .width('100%')
+            .clip(true)
           }
         })
       }
+      .padding({ left: 8, right: 8 })
     }
     .layoutWeight(1)
     .width('100%')
     .height('auto')
+  }
+
+  private closeSwipe(index: number): void {
+    this.swipeOffsets.set(index, 0)
   }
 
   private showDeleteInfoDialog(item: GoogleClientInfo): void {
