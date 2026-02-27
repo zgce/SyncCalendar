@@ -22,5 +22,6 @@ export default function testGoogleCalendarRequests() {
       const events = await reqManager.getPrimaryCalendarEvents(clientInfo, accessToken as string)
       expect(typeof events !== 'undefined').assertTrue()
     })
+
   })
 }

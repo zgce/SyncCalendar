@@ -1,4 +1,5 @@
-import { GoogleCalendarEventObj, GoogleCalendarEventListObj, GoogleCalendarEventCreateObj, GoogleCalendarRequests } from './GoogleCalendarRequests'
+import { GoogleCalendarEventObj, GoogleCalendarEventListObj, GoogleCalendarRequests,
+  ReminderOverrideObj } from './GoogleCalendarRequests'
 import { FileUtil } from './FileUtil'
 import { hilog } from '@kit.PerformanceAnalysisKit'
 import { calendarManager } from '@kit.CalendarKit'
@@ -80,7 +81,7 @@ export class GoogleCalendarDataManager {
     // 处理增、删、改事件到日历中，本地数据也需要更新
     const calendar = this.cliCals.get(cliId)?.calendar
     for (const evt of addedEvents) {
-      const calendarEvent = this.convertEvent(evt)
+      const calendarEvent = this.convertGoogleEvent(evt)
       const id = await calendar?.addEvent(calendarEvent)
       if (id) {
         hilog.info(DOMAIN, LOG_TAG, `addEvent(${evt.id}: ${evt.summary}) succeed, id: ${id}`)
@@ -91,7 +92,7 @@ export class GoogleCalendarDataManager {
       }
     }
     for (const evt of deletedEvents) {
-      const calendarEvent = this.convertEvent(evt)
+      const calendarEvent = this.convertGoogleEvent(evt)
       if (calendarEvent.id) {
         await calendar?.deleteEvent(calendarEvent.id)
         localEvents.delete(evt.id)
@@ -101,7 +102,7 @@ export class GoogleCalendarDataManager {
       }
     }
     for (const evt of updatedEvents) {
-      const calendarEvent = this.convertEvent(evt)
+      const calendarEvent = this.convertGoogleEvent(evt)
       if (calendarEvent.id) {
         await calendar?.updateEvent(calendarEvent)
         localEvents.set(evt.id, evt)
@@ -113,7 +114,7 @@ export class GoogleCalendarDataManager {
     this.saveToFile(filePath, localEvents)
   }
 
-  async createGoogleCalendar(cliInfo: GoogleClientInfo) {
+  public async createGoogleCalendar(cliInfo: GoogleClientInfo) {
     const account: calendarManager.CalendarAccount = {
       name: cliInfo.clientId,
       type: calendarManager.CalendarType.LOCAL,
@@ -174,282 +175,256 @@ export class GoogleCalendarDataManager {
     }
   }
 
-  /**
-   * 获取指定客户端ID的日历对象
-   * @param clientId 客户端ID
-   * @returns 日历对象
-   */
-  public getCalendar(clientId: string): calendarManager.Calendar | undefined {
-    return this.cliCals.get(clientId)?.calendar
-  }
-
-  /**
-   * 获取所有客户端日历配置
-   * @returns 客户端日历配置列表
-   */
-  public getClientCalendars(): ClientCalendar[] {
-    return Array.from(this.cliCals.values())
-  }
-
-  /**
-   * 将本地新建的事件同步到Google日历
-   * @param clientId 客户端ID
-   * @param localEvent 本地事件
-   * @returns Google事件ID，失败返回undefined
-   */
-  public async syncLocalEventToGoogle(clientId: string, localEvent: calendarManager.Event): Promise<string | undefined> {
-    const clientCalendar = this.cliCals.get(clientId)
-    if (!clientCalendar) {
-      hilog.error(DOMAIN, LOG_TAG, `syncLocalEventToGoogle: client ${clientId} not found`)
-      return undefined
+  public async syncLocalEvents(cliId: string, accessToken: string) {
+    const calendar = this.cliCals.get(cliId)?.calendar
+    if (!calendar) {
+      hilog.error(DOMAIN, LOG_TAG, `the client ${cliId} calendar is undefined`)
+      return;
     }
-
-    const localEventId = localEvent.id
-    if (localEventId === undefined) {
-      hilog.error(DOMAIN, LOG_TAG, `syncLocalEventToGoogle: localEvent.id is undefined`)
-      return undefined
+    const clientInfo = this.cliCals.get(cliId)?.cliInfo
+    if (!clientInfo) {
+      hilog.error(DOMAIN, LOG_TAG, `the client ${cliId} clientInfo is undefined`)
+      return;
     }
-
-    const cliInfo = clientCalendar.cliInfo
-    const reqMgr = new GoogleCalendarRequests()
-    const accessToken = await reqMgr.getAccessToken(cliInfo)
-    if (!accessToken) {
-      hilog.error(DOMAIN, LOG_TAG, `syncLocalEventToGoogle: getAccessToken failed for ${clientId}`)
-      return undefined
+    const reqMgr: GoogleCalendarRequests | undefined = AppStorage.get(GoogleCalendarRequests.GLOBAL_NAME);
+    if (!reqMgr) {
+      hilog.error(DOMAIN, LOG_TAG, `for ${cliId} get GoogleCalendarRequests is undefined`)
+      return;
     }
-
-    // 检查是否已存在映射
-    const mapping = this.getLocalToGoogleMapping(clientId, localEventId)
-    if (mapping) {
-      // 已存在映射，执行更新
-      const eventData = this.convertLocalEventToGoogle(localEvent)
-      const updatedEvent = await reqMgr.updateCalendarEvent(cliInfo, accessToken, mapping.googleEventId, eventData)
-      if (updatedEvent) {
-        this.updateLocalToGoogleMapping(clientId, localEventId, mapping.googleEventId)
-        await this.saveLocalToGoogleMapping(clientId)
-        hilog.info(DOMAIN, LOG_TAG, `syncLocalEventToGoogle: update event ${localEventId} succeed`)
-        return mapping.googleEventId
+    // 从日历里获取前后90天的事件
+    const now = new Date()
+    const end = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000)
+    const start = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000)
+    const filter = calendarManager.EventFilter.filterByTime(start.getTime(), end.getTime())
+    const calEvents = await calendar.getEvents(filter)
+    hilog.info(DOMAIN, LOG_TAG, `getEvents from calendar(${clientInfo.name}) ${start.getTime()} - ${now.getTime()}, count: ${calEvents.length}`)
+    // 读取本地的事件列表
+    const filePath = this.makeFilePath(cliId)
+    const localEvents = this.loadFromFile(filePath)
+    // 构造日历事件ID为Key的Map，方便后续查找
+    const calEvtMap = new Map<number, GoogleCalendarEventObj>()
+    for (const localEvt of localEvents.values()) {
+      if (localEvt.calEvtId) {
+        calEvtMap.set(localEvt.calEvtId, localEvt)
       }
-      return undefined
     }
-
-    // 新建事件
-    const eventData = this.convertLocalEventToGoogle(localEvent)
-    const createdEvent = await reqMgr.createCalendarEvent(cliInfo, accessToken, eventData)
-    if (createdEvent) {
-      // 保存映射关系
-      this.addLocalToGoogleMapping(clientId, localEventId, createdEvent.id)
-      await this.saveLocalToGoogleMapping(clientId)
-
-      // 更新本地事件文件
-      const filePath = this.makeFilePath(clientId)
-      const localEvents = this.loadFromFile(filePath)
-      const newEvent: GoogleCalendarEventObj = {
-        kind: 'calendar#event',
-        etag: createdEvent.etag,
-        id: createdEvent.id,
-        status: 'confirmed',
-        htmlLink: createdEvent.htmlLink,
-        created: createdEvent.created,
-        updated: createdEvent.updated,
-        summary: localEvent.title || '',
-        description: localEvent.description || '',
-        location: localEvent.location?.location || '',
-        creator: createdEvent.creator,
-        organizer: createdEvent.organizer,
-        start: createdEvent.start,
-        end: createdEvent.end,
-        iCalUID: createdEvent.iCalUID,
-        sequence: createdEvent.sequence,
-        eventType: createdEvent.eventType,
-        calEvtId: localEventId
-      }
-      localEvents.set(createdEvent.id, newEvent)
-      this.saveToFile(filePath, localEvents)
-
-      hilog.info(DOMAIN, LOG_TAG, `syncLocalEventToGoogle: create event ${localEventId} -> ${createdEvent.id} succeed`)
-      return createdEvent.id
-    }
-    return undefined
-  }
-
-  /**
-   * 从Google日历删除事件
-   * @param clientId 客户端ID
-   * @param localEventId 本地事件ID
-   * @returns 是否删除成功
-   */
-  public async deleteEventFromGoogle(clientId: string, localEventId: number): Promise<boolean> {
-    const mapping = this.getLocalToGoogleMapping(clientId, localEventId)
-    if (!mapping) {
-      hilog.warn(DOMAIN, LOG_TAG, `deleteEventFromGoogle: no mapping found for localEvent ${localEventId}`)
-      return true // 没有映射说明不需要删除
-    }
-
-    const clientCalendar = this.cliCals.get(clientId)
-    if (!clientCalendar) {
-      hilog.error(DOMAIN, LOG_TAG, `deleteEventFromGoogle: client ${clientId} not found`)
-      return false
-    }
-
-    const cliInfo = clientCalendar.cliInfo
-    const reqMgr = new GoogleCalendarRequests()
-    const accessToken = await reqMgr.getAccessToken(cliInfo)
-    if (!accessToken) {
-      hilog.error(DOMAIN, LOG_TAG, `deleteEventFromGoogle: getAccessToken failed for ${clientId}`)
-      return false
-    }
-
-    const success = await reqMgr.deleteCalendarEvent(cliInfo, accessToken, mapping.googleEventId)
-    if (success) {
-      this.removeLocalToGoogleMapping(clientId, localEventId)
-      await this.saveLocalToGoogleMapping(clientId)
-
-      // 更新本地事件文件
-      const filePath = this.makeFilePath(clientId)
-      const localEvents = this.loadFromFile(filePath)
-      localEvents.forEach((evt, id) => {
-        if (evt.calEvtId === localEventId) {
-          localEvents.delete(id)
+    // 构建增、删、改列表，供后续比对时使用
+    const addedEvents = new Array<calendarManager.Event>()
+    const deletedEvents = new Array<GoogleCalendarEventObj>()
+    const updatedEvents = new Array<calendarManager.Event>()
+    const calIds = new Set<number>()
+    for (const calEvt of calEvents) {
+      if (calEvt.id) {
+        const findEvt = calEvtMap.get(calEvt.id)
+        if (!findEvt) {
+          addedEvents.push(calEvt)
+          hilog.debug(DOMAIN, LOG_TAG, `calendar ${clientInfo.name} find new event(${calEvt.id}), will add it.`)
+        } else {
+          if (this.isEventChanged(findEvt, calEvt)) {
+            updatedEvents.push(calEvt)
+            hilog.debug(DOMAIN, LOG_TAG, `calendar ${clientInfo.name} find update event(CalId: ${calEvt.id}, GoogleId: ${findEvt.id}), will update it.`)
+          }
         }
-      })
-      this.saveToFile(filePath, localEvents)
-
-      hilog.info(DOMAIN, LOG_TAG, `deleteEventFromGoogle: delete event ${localEventId} succeed`)
+        calIds.add(calEvt.id)
+      }
     }
-    return success
+
+    for (const localEvt of calEvtMap.values()) {
+      if (!calIds.has(localEvt.calEvtId)) {
+        deletedEvents.push(localEvt)
+        hilog.debug(DOMAIN, LOG_TAG, `calendar ${clientInfo.name} find delete event(CalId: ${localEvt.calEvtId}, GoogleId: ${localEvt.id}), will delete it.`)
+      }
+    }
+    // 处理删除、添加、修改
+    for (const evt of deletedEvents) {
+      const ret = await reqMgr.deleteCalendarEvent(clientInfo, accessToken, evt.id)
+      if (ret) {
+        localEvents.delete(evt.id)
+        hilog.info(DOMAIN, LOG_TAG, `delete google event ${evt.id}`)
+      } else {
+        hilog.error(DOMAIN, LOG_TAG, `delete google event ${evt.id} failed!`)
+      }
+    }
+    for (const calEvt of addedEvents) {
+      const createEvt = this.convertLocalEvent(calEvt)
+      const googleEvt = await reqMgr.createCalendarEvent(clientInfo, accessToken, createEvt)
+      if (googleEvt && calEvt.id) {
+        googleEvt.calEvtId = calEvt.id
+        localEvents.set(googleEvt.id, googleEvt)
+        hilog.info(DOMAIN, LOG_TAG, `add google event ${googleEvt.id} successed!`)
+      } else {
+        hilog.error(DOMAIN, LOG_TAG, `add google event ${calEvt.id} failed!`)
+      }
+    }
+    for (const calEvt of updatedEvents) {
+      if (calEvt.id) {
+        const googleEvt = calEvtMap.get(calEvt.id)
+        if(googleEvt) {
+          const updateEvt = this.updateGoogleEvent(calEvt, googleEvt)
+          const finalEvt = await reqMgr.updateCalendarEvent(clientInfo, accessToken, updateEvt.id, updateEvt)
+          if (finalEvt) {
+            finalEvt.calEvtId = calEvt.id
+            localEvents.set(finalEvt.id, finalEvt)
+            hilog.info(DOMAIN, LOG_TAG, `update google event ${googleEvt.id} successed!`)
+          } else {
+            hilog.error(DOMAIN, LOG_TAG, `update google event ${googleEvt.id} failed!`)
+          }
+        }
+      }
+    }
+    // 更新完成后保存本地事件列表
+    this.saveToFile(filePath, localEvents)
+  }
+
+  private isEventChanged(localEvt: GoogleCalendarEventObj, calEvt: calendarManager.Event): boolean {
+    let isChanged = false;
+
+    if (localEvt.summary !== calEvt.title) {
+      isChanged = true;
+    }
+
+    if (!isChanged && (localEvt.description !== calEvt.description)) {
+      isChanged = true;
+    }
+
+    if (!isChanged && (localEvt.location !== calEvt.location?.location)) {
+      isChanged = true;
+    }
+    if (!isChanged && (calEvt.isAllDay)) {
+      const startTime = new Date(calEvt.startTime)
+      const endTime = new Date(calEvt.endTime)
+      if(localEvt.start.date && localEvt.end.date) {
+        const localStart = new Date(localEvt.start.date)
+        const localEnd = new Date(localEvt.end.date)
+        isChanged = localStart.getTime() !== startTime.getTime() || localEnd.getTime() !== endTime.getTime()
+      } else {
+        isChanged = false;
+      }
+    }
+    if (!isChanged && (!calEvt.isAllDay)) {
+      const startTime = new Date(calEvt.startTime)
+      const endTime = new Date(calEvt.endTime)
+      if(localEvt.start.dateTime && localEvt.end.dateTime) {
+        const localStart = new Date(localEvt.start.dateTime)
+        const localEnd = new Date(localEvt.end.dateTime)
+        isChanged = localStart.getTime() !== startTime.getTime() || localEnd.getTime() !== endTime.getTime()
+      } else {
+        isChanged = false;
+      }
+    }
+
+    if (!isChanged && (calEvt.reminderTime && calEvt.reminderTime.length > 0)) {
+      if (localEvt.reminders.overrides) {
+        for (const remind of localEvt.reminders.overrides) {
+          if(!calEvt.reminderTime.find((minutes) => minutes === remind.minutes)) {
+            isChanged = false;
+          }
+        }
+      } else {
+        isChanged = true;
+      }
+    }
+
+    return isChanged;
+  }
+
+  private updateGoogleEvent(calEvent: calendarManager.Event, googleEvent: GoogleCalendarEventObj): GoogleCalendarEventObj {
+    googleEvent.summary = calEvent.title ? calEvent.title : ''
+    googleEvent.description = calEvent.description ? calEvent.description : ''
+    if (calEvent.location && calEvent.location.location) {
+      googleEvent.location = calEvent.location.location
+    }
+    if (calEvent.isAllDay) {
+      googleEvent.start.date = (new Date(calEvent.startTime)).toISOString().substring(0, 10)
+      googleEvent.end.date = (new Date(calEvent.endTime)).toISOString().substring(0, 10)
+      googleEvent.start.dateTime = undefined
+      googleEvent.end.dateTime = undefined
+    } else {
+      googleEvent.start.dateTime = (new Date(calEvent.startTime)).toISOString()
+      googleEvent.end.dateTime = (new Date(calEvent.endTime)).toISOString()
+      googleEvent.start.date = undefined
+      googleEvent.end.date = undefined
+    }
+    if (calEvent.timeZone) {
+      googleEvent.start.timeZone = calEvent.timeZone
+      googleEvent.end.timeZone = calEvent.timeZone
+    }
+    if (calEvent.reminderTime && calEvent.reminderTime.length > 0) {
+      googleEvent.reminders.overrides = new Array<ReminderOverrideObj>()
+      for (const minutes of calEvent.reminderTime) {
+        googleEvent.reminders.useDefault = false
+        googleEvent.reminders.overrides.push({ method: 'popup', minutes: minutes })
+      }
+    }
+    return googleEvent
+  }
+
+  private emptyGoogleEvent(): GoogleCalendarEventObj {
+    return {
+      kind: 'calendar#event',
+      etag: '',
+      id: '',
+      status: 'confirmed',
+      htmlLink: '',
+      created: '',
+      updated: '',
+      summary: '',
+      description: '',
+      location: '',
+      creator: { email: '', displayName: '' },
+      organizer: { email: '', displayName: ''},
+      start: { dateTime: '', timeZone: '' },
+      end : { dateTime: '', timeZone: '' },
+      iCalUID: '',
+      sequence: 0,
+      eventType: 'default',
+      reminders: { useDefault: true, overrides: [] },
+      calEvtId: -1
+    }
   }
 
   /**
    * 将本地事件转换为Google事件创建格式
    */
-  private convertLocalEventToGoogle(localEvent: calendarManager.Event): GoogleCalendarEventCreateObj {
+  private convertLocalEvent(localEvent: calendarManager.Event): GoogleCalendarEventObj {
     const startDate = new Date(localEvent.startTime)
     const endDate = new Date(localEvent.endTime)
 
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
+    const googleEvent = this.emptyGoogleEvent()
+    googleEvent.summary = localEvent.title || ''
+    googleEvent.description = localEvent.description || ''
+    googleEvent.location = localEvent.location?.location || ''
+    googleEvent.calEvtId = localEvent?.id || -1
     if (localEvent.isAllDay) {
-      const startDate = new Date(localEvent.startTime)
-      return {
-        summary: localEvent.title || '',
-        description: localEvent.description || '',
-        location: localEvent.location?.location || '',
-        start: {
-          date: startDate.toLocaleDateString(),
-          timeZone: tz
-        },
-        end: {
-          date: startDate.toLocaleDateString(),
-          timeZone: tz
-        }
+      googleEvent.start = {
+        date: startDate.toISOString().substring(0, 10),
+        timeZone: tz
+      }
+      googleEvent.end = {
+        date: endDate.toISOString().substring(0, 10),
+        timeZone: tz
       }
     } else {
-      return {
-        summary: localEvent.title || '',
-        description: localEvent.description || '',
-        location: localEvent.location?.location || '',
-        start: {
-          dateTime: startDate.toISOString(),
-          timeZone: tz
-        },
-        end: {
-          dateTime: endDate.toISOString(),
-          timeZone: tz
-        }
+      googleEvent.start = {
+        dateTime: startDate.toISOString(),
+        timeZone: tz
+      }
+      googleEvent.end = {
+        dateTime: endDate.toISOString(),
+        timeZone: tz
       }
     }
-  }
-
-  /**
-   * 获取本地事件到Google事件的映射
-   */
-  public getLocalToGoogleMapping(clientId: string, localEventId: number): LocalToGoogleEventMap | undefined {
-    const clientMap = this.localToGoogleMap.get(clientId)
-    if (!clientMap) {
-      return undefined
-    }
-    return clientMap.get(localEventId)
-  }
-
-  /**
-   * 添加本地事件到Google事件的映射
-   */
-  private addLocalToGoogleMapping(clientId: string, localEventId: number, googleEventId: string) {
-    let clientMap = this.localToGoogleMap.get(clientId)
-    if (!clientMap) {
-      clientMap = new Map<number, LocalToGoogleEventMap>()
-      this.localToGoogleMap.set(clientId, clientMap)
-    }
-    clientMap.set(localEventId, {
-      calEvtId: localEventId,
-      googleEventId: googleEventId,
-      lastSyncTime: Date.now()
-    })
-  }
-
-  /**
-   * 更新本地事件到Google事件的映射
-   */
-  private updateLocalToGoogleMapping(clientId: string, localEventId: number, googleEventId: string) {
-    this.addLocalToGoogleMapping(clientId, localEventId, googleEventId)
-  }
-
-  /**
-   * 移除本地事件到Google事件的映射
-   */
-  private removeLocalToGoogleMapping(clientId: string, localEventId: number) {
-    const clientMap = this.localToGoogleMap.get(clientId)
-    if (clientMap) {
-      clientMap.delete(localEventId)
-    }
-  }
-
-  /**
-   * 保存本地到Google的事件映射到文件
-   */
-  private async saveLocalToGoogleMapping(clientId: string) {
-    if (!this.ctx) {
-      return
-    }
-    const clientMap = this.localToGoogleMap.get(clientId)
-    if (!clientMap) {
-      return
-    }
-    const filePath = this.ctx.filesDir + '/' + clientId + '_mapping.json'
-    try {
-      const data: Record<string, LocalToGoogleEventMap> = {}
-      clientMap.forEach((value, key) => {
-        data[key.toString()] = value
-      })
-      FileUtil.writeTextFile(filePath, JSON.stringify(data))
-      hilog.info(DOMAIN, LOG_TAG, `saveLocalToGoogleMapping(${filePath}) succeed`)
-    } catch (err) {
-      hilog.error(DOMAIN, LOG_TAG, `saveLocalToGoogleMapping failed! ${Error(err).message}`)
-    }
-  }
-
-  /**
-   * 从文件加载本地到Google的事件映射
-   */
-  public loadLocalToGoogleMapping(clientId: string) {
-    if (!this.ctx) {
-      return
-    }
-    const filePath = this.ctx.filesDir + '/' + clientId + '_mapping.json'
-    try {
-      if (FileUtil.fileExists(filePath)) {
-        const txtData = FileUtil.readTextFile(filePath)
-        const data = JSON.parse(txtData) as Record<string, LocalToGoogleEventMap>
-        const clientMap = new Map<number, LocalToGoogleEventMap>()
-        Object.keys(data).forEach((key: string) => {
-          clientMap.set(parseInt(key), data[key])
+    if (localEvent.reminderTime && localEvent.reminderTime.length > 0) {
+      googleEvent.reminders.useDefault = false
+      for (const reminderTime of localEvent.reminderTime) {
+        googleEvent.reminders.overrides?.push({
+          method: 'popup',
+          minutes: reminderTime
         })
-        this.localToGoogleMap.set(clientId, clientMap)
-        hilog.info(DOMAIN, LOG_TAG, `loadLocalToGoogleMapping(${filePath}) succeed, count: ${clientMap.size}`)
       }
-    } catch (err) {
-      hilog.error(DOMAIN, LOG_TAG, `loadLocalToGoogleMapping failed! ${Error(err).message}`)
     }
+    return googleEvent
   }
 
   /**
@@ -457,7 +432,7 @@ export class GoogleCalendarDataManager {
    * @param evt 从Google获取到的事件
    * @returns 本地事件类型
    */
-  private convertEvent(evt: GoogleCalendarEventObj): calendarManager.Event {
+  private convertGoogleEvent(evt: GoogleCalendarEventObj): calendarManager.Event {
     let startTime = new Date();
     let endTime = new Date();
     let allDayFlag: boolean = false
@@ -470,19 +445,29 @@ export class GoogleCalendarDataManager {
       startTime = new Date(evt.start.dateTime)
       endTime = new Date(evt.end.dateTime)
     }
-    hilog.debug(DOMAIN, LOG_TAG, `convertEvent: all day event, start: ${startTime}, end: ${endTime} milliseconds ${startTime.getTime()} ${endTime.getTime()}`)
 
     const calendarEvent: calendarManager.Event = {
       type: calendarManager.EventType.NORMAL,
       title: evt.summary,
       startTime: startTime.getTime(),
       endTime: endTime.getTime(),
+      timeZone: evt.start.timeZone,
       description: evt.description,
       isAllDay: allDayFlag,
       location: evt.location ? { location: evt.location } : undefined,
     }
     if (evt.calEvtId) {
       calendarEvent.id = evt.calEvtId
+    }
+    if (evt.reminders && evt.reminders.overrides && evt.reminders.overrides.length > 0 && evt.reminders.overrides[0].minutes) {
+      const reminderMinutes = Array<number>()
+      for (const item of evt.reminders.overrides) {
+        if (item.minutes) {
+          reminderMinutes.push(item.minutes)
+        }
+      }
+      if (reminderMinutes.length > 0)
+      calendarEvent.reminderTime = reminderMinutes
     }
     return calendarEvent
   }

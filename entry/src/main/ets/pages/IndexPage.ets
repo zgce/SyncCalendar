@@ -2,6 +2,7 @@ import { GoogleCalendarDataManager } from '../business/GoogleCalendarDataManager
 import { GoogleCalendarRequests } from '../business/GoogleCalendarRequests';
 import { GoogleCalendarSyncAction } from '../business/GoogleCalendarSyncAction';
 import { GoogleClientInfo, GoogleClientInfoManager} from '../business/GoogleClientInfoManager';
+import { promptAction } from '@kit.ArkUI';
 
 interface RouterParams {
   needReload: boolean;
@@ -84,7 +85,24 @@ struct Index {
         .onClick(() => {
           this.infosMgr?.getClientInfos().forEach(info => {
             const syncAction = new GoogleCalendarSyncAction()
-            syncAction.action(info)
+            syncAction.action(info).then(() => {
+              promptAction.openToast({
+                message: '同步完成',
+                duration: 2000,
+                textColor: Color.White,
+                backgroundColor: Color.Black
+              }).catch((err: Error) => {
+                console.error(`显示提示失败 ${err.name}, ${err.message}`)
+              })
+            })
+            promptAction.openToast({
+              message: '正在同步中，请稍候...',
+              duration: 3000,
+              textColor: Color.White,
+              backgroundColor: Color.Black
+            }).catch((err: Error) => {
+              console.error(`显示提示失败 ${err.name}, ${err.message}`)
+            })
           })
         })
       }

@@ -29,10 +29,20 @@ interface UserObj {
   displayName: string
 }
 
-interface timeObj {
+interface TimeObj {
   date?: string
   dateTime?: string
   timeZone: string
+}
+
+export interface ReminderOverrideObj {
+  method: string
+  minutes?: number
+}
+
+interface ReminderObj {
+  useDefault: boolean
+  overrides?: Array<ReminderOverrideObj>
 }
 
 /**
@@ -63,24 +73,26 @@ export interface GoogleCalendarEventObj {
   location: string
   creator: UserObj
   organizer: UserObj
-  start: timeObj
-  end: timeObj
+  start: TimeObj
+  end: TimeObj
   iCalUID: string
   sequence: number
   eventType: string
+  reminders: ReminderObj
 
   calEvtId: number //自定义字段
 }
 
-/**
- * 创建Google日历事件时的请求体结构
- */
-export interface GoogleCalendarEventCreateObj {
+interface GoogleCreateEventObj {
+  end: TimeObj
+  start: TimeObj
+  kind: string
+  status: string
   summary: string
-  description?: string
-  location?: string
-  start: timeObj
-  end: timeObj
+  description: string
+  location: string
+  eventType: string
+  reminders: ReminderObj
 }
 
 /**
@@ -180,9 +192,10 @@ export class GoogleCalendarRequests {
     try {
       let url = 'https://www.googleapis.com/calendar/v3/calendars/primary/events'
       const now = new Date()
-      const prevDay = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000)
-      url += `?timeMax=${now.toISOString()}`
-      url += `&timeMin=${prevDay.toISOString()}`
+      const end = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000)
+      const start = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000)
+      url += `?timeMax=${end.toISOString()}`
+      url += `&timeMin=${start.toISOString()}`
       let rsp: FetchResponse = {retCode: 0}
       if (proxyInfo && StrUtil.isNotBlank(proxyInfo.proxyIp)) {
         rsp = await this.fetchUrlWithProxy(proxyInfo, url, http.RequestMethod.GET, undefined, accessToken)
@@ -199,6 +212,7 @@ export class GoogleCalendarRequests {
     } catch ( err) {
       hilog.error(this.DOMAIN, this.LOG_TAG, `getPrimaryCalendarEvents failed! error: ${Error(err).message}`)
     }
+    hilog.info(this.DOMAIN, this.LOG_TAG, `getPrimaryCalendarEvents events count: ${calendarEvents?.items?.length}`)
     return calendarEvents
   }
 
@@ -209,24 +223,35 @@ export class GoogleCalendarRequests {
    * @param eventData 事件数据
    * @returns 创建的事件对象
    */
-  async createCalendarEvent(info: GoogleClientInfo, accessToken: string, eventData: GoogleCalendarEventCreateObj): Promise<GoogleCalendarEventObj | undefined> {
+  async createCalendarEvent(info: GoogleClientInfo, accessToken: string, eventData: GoogleCalendarEventObj): Promise<GoogleCalendarEventObj | undefined> {
     const proxyInfo = info.proxy
+    const createData : GoogleCreateEventObj = {
+      end: eventData.end,
+      start: eventData.start,
+      kind: eventData.kind,
+      status: eventData.status,
+      summary: eventData.summary,
+      description: eventData.description,
+      location: eventData.location,
+      eventType: eventData.eventType,
+      reminders: eventData.reminders
+    }
     let createdEvent: GoogleCalendarEventObj | undefined = undefined
     try {
       const url = 'https://www.googleapis.com/calendar/v3/calendars/primary/events'
-      const content = JSON.stringify(eventData)
+      const content = JSON.stringify(createData)
       let rsp: FetchResponse = {retCode: 0}
       if (proxyInfo && StrUtil.isNotBlank(proxyInfo.proxyIp)) {
         rsp = await this.fetchUrlWithProxy(proxyInfo, url, http.RequestMethod.POST, content, accessToken)
       } else {
         rsp = await this.fetchUrl(url, http.RequestMethod.POST, content, accessToken)
       }
+      const text = StrUtil.unit8ArrayToStr(StrUtil.bufferToUint8Array(rsp.data as ArrayBuffer))
       if (rsp.data && rsp.retCode === 200) {
-        const text = StrUtil.unit8ArrayToStr(StrUtil.bufferToUint8Array(rsp.data as ArrayBuffer))
         createdEvent = JSON.parse(text) as GoogleCalendarEventObj
         hilog.info(this.DOMAIN, this.LOG_TAG, `createCalendarEvent succeed, id: ${createdEvent.id}`)
       } else {
-        hilog.error(this.DOMAIN, this.LOG_TAG, `createCalendarEvent failed! status: ${rsp.retCode}`)
+        hilog.error(this.DOMAIN, this.LOG_TAG, `createCalendarEvent failed! status: ${rsp.retCode}, response: ${text}, content: ${content}`)
       }
     } catch (err) {
       hilog.error(this.DOMAIN, this.LOG_TAG, `createCalendarEvent failed! error: ${Error(err).message}`)
@@ -242,7 +267,7 @@ export class GoogleCalendarRequests {
    * @param eventData 事件数据
    * @returns 更新后的事件对象
    */
-  async updateCalendarEvent(info: GoogleClientInfo, accessToken: string, googleEventId: string, eventData: GoogleCalendarEventCreateObj): Promise<GoogleCalendarEventObj | undefined> {
+  async updateCalendarEvent(info: GoogleClientInfo, accessToken: string, googleEventId: string, eventData: GoogleCalendarEventObj): Promise<GoogleCalendarEventObj | undefined> {
     const proxyInfo = info.proxy
     let updatedEvent: GoogleCalendarEventObj | undefined = undefined
     try {

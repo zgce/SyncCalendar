@@ -39,6 +39,10 @@ export default function abilityTest() {
       const strTime2 = '2014-04-25T15:07:31.893Z'
       const dateTime2 = new Date(strTime2)
       expect(dateTime2 != null).assertTrue()
+
+      const now = new Date()
+      const dateString = `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}`
+      hilog.info(0x0000, 'testTag', `dateString: ${now.toDateString()}, timeString: ${now.toTimeString()} timeZoneString: ${now.getTimezoneOffset()}, isoString: ${now.toISOString()}, dataString: ${dateString}, ${now.toISOString().substring(0, 10)}`)
     })
   })
 }

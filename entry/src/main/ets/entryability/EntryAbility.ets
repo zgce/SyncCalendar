@@ -72,16 +72,8 @@ export default class EntryAbility extends UIAbility {
       const localListener = new LocalCalendarListener(this.context)
       AppStorage.setOrCreate(LocalCalendarListener.GLOBAL_NAME, localListener)
 
-      // 加载本地到Google的事件映射
-      const cliMgr: GoogleClientInfoManager | undefined = AppStorage.get(GoogleClientInfoManager.GLOBAL_NAME)
-      if (cliMgr) {
-        cliMgr.getClientInfos().forEach((cliInfo) => {
-          dataMgr.loadLocalToGoogleMapping(cliInfo.clientId)
-        })
-      }
-
       // 开始定时同步，设置同步间隔为600秒/10分钟
-      const syncInterval = 30000
+      const syncInterval = 600000
       localListener.startListening(syncInterval)
       hilog.info(DOMAIN, 'testTag', `LocalCalendarListener started with interval: ${syncInterval}ms`)
     }).catch((err: BusinessError) => {

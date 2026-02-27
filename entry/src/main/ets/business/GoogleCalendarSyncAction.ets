@@ -24,7 +24,7 @@ export class GoogleCalendarSyncAction {
 
     const accessToken = await reqMgr.getAccessToken(cliInfo)
     if (accessToken) {
-      // 获取Google日历数据
+      // 获取Google日历数据与本地数据进行合并
       const calendarData = await reqMgr.getPrimaryCalendarEvents(cliInfo, accessToken)
       if (calendarData && calendarData.items && calendarData.items.length > 0) {
         hilog.debug(this.DOMAIN, this.LOG_TAG, `get google calendarData item count ${calendarData.items.length}`)
@@ -32,6 +32,8 @@ export class GoogleCalendarSyncAction {
       } else {
         hilog.debug(this.DOMAIN, this.LOG_TAG, `get google calendarData by cli ${cliInfo.name} item count 0`)
       }
+      // 同步本地数据到Google日历
+      await dataMgr.syncLocalEvents(cliInfo.clientId, accessToken)
     } else {
       hilog.error(this.DOMAIN, this.LOG_TAG, `get google accessToken failed for cli ${cliInfo.name}`)
     }
