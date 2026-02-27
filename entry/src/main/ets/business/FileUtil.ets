@@ -43,5 +43,15 @@ export class FileUtil {
       return '';
     }
   }
+
+  static deleteFile(filePath: string): boolean {
+    try {
+      fileIo.unlinkSync(filePath);
+      return true;
+    } catch (err) {
+      hilog.error(DOMAIN, LOG_TAG, `deleteFile(${filePath}) failed ${Error(err).message}}`)
+      return false;
+    }
+  }
 }
 

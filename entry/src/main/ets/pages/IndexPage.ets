@@ -195,6 +195,7 @@ struct Index {
         action: () => {
           this.infosMgr?.removeClientInfo(item.clientId)
           this.infosMgr?.saveToFile(this.getUIContext().getHostContext()?.filesDir)
+          this.dataMgr?.removeClientData(item.clientId)
           console.log(`delete client info ${item.name}`)
         }
       },

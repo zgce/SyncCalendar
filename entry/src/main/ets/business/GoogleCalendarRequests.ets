@@ -19,7 +19,7 @@ interface AccessTokenRespType {
 /**
  * 定义通用的回应结构，使得发送HTTPS请求函数获得统一的回应结构
  */
-interface FetchResponse {
+export interface FetchResponse {
   retCode: number;
   data?: string | ArrayBuffer | object;
 }
@@ -129,8 +129,9 @@ export class GoogleCalendarRequests {
     const proxyInfo = info.proxy
     let result: string | undefined = undefined
     try {
-      const content =
+      const content = StrUtil.isNotBlank(info.clientSecret) ?
         `grant_type=refresh_token&client_id=${info.clientId}&client_secret=${info.clientSecret}&refresh_token=${info.clientRefreshToken}`
+        : `grant_type=refresh_token&client_id=${info.clientId}&refresh_token=${info.clientRefreshToken}`
       let rsp: FetchResponse = {retCode: 0}
       const url = 'https://oauth2.googleapis.com/token'
       if (proxyInfo && StrUtil.isNotBlank(proxyInfo.proxyIp)) {
@@ -331,15 +332,17 @@ export class GoogleCalendarRequests {
    * @param accessToken 认证用的AccessToken
    * @returns 请求回应结构
    */
-  private async fetchUrlWithProxy(proxyInfo: ProxyInfo, url: string, method: string,
+  public async fetchUrlWithProxy(proxyInfo: ProxyInfo, url: string, method: string,
     content?: string, accessToken?: string): Promise<FetchResponse> {
     let ret: FetchResponse = { retCode: 0 }
     try {
       const session = rcp.createSession()
       const request = new rcp.Request(url, method)
+      const withUserURL = `https://${proxyInfo.proxyUser}:${proxyInfo.proxyPwd}@${proxyInfo.proxyIp}:${proxyInfo.proxyPort}`
+      const noUserURL = `http://${proxyInfo.proxyIp}:${proxyInfo.proxyPort}`
       request.configuration = {
         proxy: {
-          url: `https://${proxyInfo.proxyUser}:${proxyInfo.proxyPwd}@${proxyInfo.proxyIp}:${proxyInfo.proxyPort}`,
+          url: StrUtil.isBlank(proxyInfo.proxyUser) ? noUserURL : withUserURL,
           createTunnel: 'always',
           security: {
             remoteValidation: 'skip',
@@ -382,7 +385,7 @@ export class GoogleCalendarRequests {
     return ret
   }
 
-  private async fetchUrl(url: string, action: http.RequestMethod, content?: string,
+  public async fetchUrl(url: string, action: http.RequestMethod, content?: string,
     accessToken?: string): Promise<FetchResponse> {
     const request = http.createHttp()
     let ret: FetchResponse = { retCode: 0 }

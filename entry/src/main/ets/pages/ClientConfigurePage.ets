@@ -221,8 +221,6 @@ struct ClientConfigurePage {
                 }).catch((err: Error) => {
                   console.error(`显示提示失败 ${err.name}, ${err.message}`)
                 })
-                //this.saveClientInfo();
-                //this.getUIContext().getRouter().back({ url: 'pages/IndexPage', params: { needReload: true } })
               } else {
                 this.getUIContext().showAlertDialog({
                   autoCancel: true,

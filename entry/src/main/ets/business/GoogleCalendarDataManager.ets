@@ -276,6 +276,12 @@ export class GoogleCalendarDataManager {
     this.saveToFile(filePath, localEvents)
   }
 
+  public removeClientData(cliId: string) {
+    const filePath = this.makeFilePath(cliId)
+    FileUtil.deleteFile(filePath)
+    hilog.info(DOMAIN, LOG_TAG, `remove client ${cliId} data ${filePath} succeed`)
+  }
+
   private isEventChanged(localEvt: GoogleCalendarEventObj, calEvt: calendarManager.Event): boolean {
     let isChanged = false;
 
